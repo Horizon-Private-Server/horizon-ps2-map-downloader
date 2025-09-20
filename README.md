@@ -10,7 +10,15 @@ A tool for downloading and managing Horizon custom maps on PlayStation 2.
 
 ## Installation
 
+Download the latest release from the [Releases page](https://github.com/Horizon-Private-Server/horizon-ps2-map-downloader/releases).  
+Extract the `.elf` file from the downloaded archive.
 
+To run the ELF on your PlayStation 2:
+
+1. Copy the `.elf` file to a USB drive.
+2. Insert the USB drive into your PS2.
+3. Launch `uLaunchELF` on your PS2.
+4. Navigate to `mass:/` (your USB drive) and select the `.elf` file to run the map downloader.
 
 ## Build Requirements
 
