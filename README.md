@@ -31,7 +31,13 @@ To run the ELF on your PlayStation 2:
 git clone https://github.com/Horizon-Private-Server/horizon-ps2-map-downloader.git
 cd horizon-ps2-map-downloader
 docker run -it --rm -v "$PWD\:/src" ps2dev/ps2dev:latest
+```
+
+then once inside the docker container run:
+
+```bash
 apk add make build-base
+cd /src
 make
 ```
 
