@@ -28,13 +28,30 @@
 
 const char * DRIVE_MASS = "mass";
 const char * DRIVE_HOST = "host";
+const char * LOCAL_PATH = "%s:%s";
 const char * LOCAL_BINARY_PATH = "%s:%s/%s.%s";
-const char * INDEX_PATH = "/downloads/maps/index_%s_%s.txt";
+const char * INDEX_PATH = "%sindex_%s_%s.txt";
 //const char * MAP_IMAGE_PATH = "/downloads/maps/assets/images/%s.jpg";
-const char * MAP_BINARY_PATH = "/downloads/maps/%s/%s.%s";
+const char * MAP_BINARY_PATH = "%s%s/%s.%s";
 const char * MAP_VERSION_EXT = "version";
-const char * MAP_GLOBAL_VERSION_PATH = "/downloads/maps/%s/version";
-const char * LOCAL_GLOBAL_VERSION_PATH = "%s:%s/version";
+
+const char* DB_GAME_FOLDERS[DB_GAME_COUNT] = {
+  [DB_GAME_DL] = "dl",
+  [DB_GAME_UYA] = "uya",
+  [DB_GAME_RC3] = "uya"
+};
+
+const char* DB_GAME_REGIONS[DB_GAME_COUNT] = {
+  [DB_GAME_DL] = "ntsc",
+  [DB_GAME_UYA] = "ntsc",
+  [DB_GAME_RC3] = "pal"
+};
+
+const char* DB_GAME_ZIP_EXTS[DB_GAME_COUNT] = {
+  [DB_GAME_DL] = "zip",
+  [DB_GAME_UYA] = "ntsc.zip",
+  [DB_GAME_RC3] = "pal.zip"
+};
 
 int client_connect(const char* hostname);
 int client_get(int socket, const char* hostname, const char* path, char* output, int output_size);
@@ -175,7 +192,7 @@ int http_download(const char* hostname, const char* path, const char* file_path,
 {
   FILE* f = NULL;
   int response = 0, content_length = 0;
-  int total_read = 0, total_write = 0;
+  int total_read = 0;
 
   DPRINTF("http_download %s -> %s\n", path, file_path);
 
@@ -284,7 +301,7 @@ error: ;
   return -1;
 }
 
-int db_parse(struct DbIndex* db)
+int db_parse(struct DbIndex* db, int print_lines)
 {
   int i;
   char content_buffer[2048];
@@ -296,11 +313,11 @@ int db_parse(struct DbIndex* db)
   memset(db->Items, 0, sizeof(db->Items));
 
   // get index
-  scr_printf("Getting map list...\n");
-  snprintf(url_path, sizeof(url_path), INDEX_PATH, db->GameCode, db->RegionCode);
+  if (print_lines > 0) scr_printf("Getting map list...\n");
+  snprintf(url_path, sizeof(url_path), INDEX_PATH, db->Path, db->GameCode, db->RegionCode);
   int read = http_get(db->Hostname, url_path, content_buffer, sizeof(content_buffer)-1, NULL);
   if (read <= 0) {
-    scr_printf("Unable to query map index\n");
+    if (print_lines > 0) scr_printf("Unable to query map index\n");
     return -1;
   }
 
@@ -309,7 +326,7 @@ int db_parse(struct DbIndex* db)
   i = 0;
   while (i < MAX_DB_INDEX_ITEMS)
   {
-    if (3 != sscanf(content, "%[^\n|]|%[^\n|]|%d\n", db->Items[i].Filename, db->Items[i].Name, &db->Items[i].RemoteVersion))
+    if (3 != sscanf(content, "%127[^\n|]|%63[^\n|]|%d\n", db->Items[i].Filename, db->Items[i].Name, &db->Items[i].RemoteVersion))
       break;
     
     content = strstr(content, "\n") + 1;
@@ -325,29 +342,103 @@ int db_parse(struct DbIndex* db)
   }
 
   // print
-  scr_printf("Total Maps: %d\n", db->ItemCount);
-  scr_printf("Updates: %d\n", db->DeltaCount);
-  int printed = 0;
-  for (i = 0; i < db->ItemCount && printed < 10; ++i) {
-    if (db->Items[i].LocalVersion != db->Items[i].RemoteVersion) {
-      scr_printf("\t%s (version %d => %d)\n", db->Items[i].Name, db->Items[i].LocalVersion, db->Items[i].RemoteVersion);
-      printed++;
+  if (print_lines > 0) {
+    scr_printf("Total Maps: %d\n", db->ItemCount);
+    scr_printf("Updates: %d\n", db->DeltaCount);
+    int printed = 0;
+    for (i = 0; i < db->ItemCount && printed < print_lines; ++i) {
+      if (db->Items[i].LocalVersion != db->Items[i].RemoteVersion) {
+        scr_printf("\t%s (version %d => %d)\n", db->Items[i].Name, db->Items[i].LocalVersion, db->Items[i].RemoteVersion);
+        printed++;
+      }
     }
-  }
-  if (db->DeltaCount >= 10) {
-    scr_printf("\t...\n");
+    if (db->DeltaCount >= 10) {
+      scr_printf("\t...\n");
+    }
   }
 
   return 0;
 }
 
-int db_check_mass_dir(struct DbIndex* db)
+int db_parse_get_count(struct DbIndex* db)
+{
+  int i;
+  char content_buffer[2048];
+  char url_path[512];
+
+  // init
+  db->DeltaCount = 0;
+  db->ItemCount = 0;
+  memset(db->Items, 0, sizeof(db->Items));
+
+  // get index
+  snprintf(url_path, sizeof(url_path), INDEX_PATH, db->Path, db->GameCode, db->RegionCode);
+  int read = http_get(db->Hostname, url_path, content_buffer, sizeof(content_buffer)-1, NULL);
+  if (read <= 0) {
+    return -1;
+  }
+
+  // parse index
+  char * content = content_buffer;
+  i = 0;
+  while (i < MAX_DB_INDEX_ITEMS)
+  {
+    if (3 != sscanf(content, "%127[^\n|]|%63[^\n|]|%d\n", db->Items[i].Filename, db->Items[i].Name, &db->Items[i].RemoteVersion))
+      break;
+    
+    content = strstr(content, "\n") + 1;
+    ++i;
+  }
+  db->ItemCount = i;
+
+  return 0;
+}
+
+int db_check_mass(char* filepath)
+{
+  struct stat st = {0};
+  char full_path[256];
+
+  // check for host: first
+  snprintf(full_path, sizeof(full_path), "%s:%s", DRIVE_HOST, filepath);
+  if (stat(full_path, &st) == -1) {
+    FILE* f = fopen(full_path, "w");
+    DPRINTF("fopen %s => %d\n", full_path, f != NULL);
+
+    // success
+    if (f) {
+      fclose(f);
+      use_host = 1;
+      scr_printf("Host drive detected\n");
+      return 1;
+    }
+  } else {
+    use_host = 1;
+    scr_printf("Host drive detected\n");
+    return 1;
+  }
+
+  // check for mass: last
+  snprintf(full_path, sizeof(full_path), "%s:%s", DRIVE_MASS, filepath);
+  if (stat(full_path, &st) == -1) {
+    FILE* f = fopen(full_path, "w");
+    DPRINTF("fopen %s => %d\n", full_path, f != NULL);
+    if (!f) return 1;
+    
+    fclose(f);
+  }
+
+  scr_printf("USB drive detected\n");
+  return 1;
+}
+
+int db_check_mass_dir(char* folder)
 {
   struct stat st = {0};
   char dir_path[256];
 
   // check for host: first
-  snprintf(dir_path, sizeof(dir_path), "%s:%s", DRIVE_HOST, db->GameCode);
+  snprintf(dir_path, sizeof(dir_path), "%s:%s", DRIVE_HOST, folder);
   if (stat(dir_path, &st) == -1) {
     int r = mkdir(dir_path, 0777);
     DPRINTF("mkdir %s => %d\n", dir_path, r);
@@ -355,25 +446,25 @@ int db_check_mass_dir(struct DbIndex* db)
     // success
     if (r >= 0) {
       use_host = 1;
-      scr_printf("Host drive detected\n");
-      return 0;
+      //scr_printf("Host drive detected\n");
+      return 1;
     }
   } else {
     use_host = 1;
-    scr_printf("Host drive detected\n");
-    return 0;
+    //scr_printf("Host drive detected\n");
+    return 1;
   }
 
   // check for mass: last
-  snprintf(dir_path, sizeof(dir_path), "%s:%s", DRIVE_MASS, db->GameCode);
+  snprintf(dir_path, sizeof(dir_path), "%s:%s", DRIVE_MASS, folder);
   if (stat(dir_path, &st) == -1) {
     int r = mkdir(dir_path, 0777);
     DPRINTF("mkdir %s => %d\n", dir_path, r);
-    if (r < 0) return -1;
+    if (r < 0) return 1;
   }
 
-  scr_printf("USB drive detected\n");
-  return 0;
+  //scr_printf("USB drive detected\n");
+  return 1;
 }
 
 void db_download_item_callback(int bytes_downloaded, int total_bytes)
@@ -485,7 +576,7 @@ int db_download_item(struct DbIndex* db, struct DbIndexItem* item, char* buffer,
     return -1;
 
   // download zip
-  snprintf(url_path, sizeof(url_path), MAP_BINARY_PATH, db->GameCode, item->Filename, db->Ext);
+  snprintf(url_path, sizeof(url_path), MAP_BINARY_PATH, db->Path, db->GameCode, item->Filename, db->Ext);
   int zip_size = http_get(db->Hostname, url_path, buffer, buffer_size, &db_download_item_callback);
   scr_printf("\n");
 
@@ -496,25 +587,6 @@ int db_download_item(struct DbIndex* db, struct DbIndexItem* item, char* buffer,
     ret = -1;
 
   return ret;
-}
-
-int db_write_global_version(struct DbIndex* db)
-{
-  char url_path[512];
-  char file_path[512];
-
-  // only DL has global version
-  if (strncmp(db->GameCode, "dl", 2) != 0) return 0;
-
-  // build paths
-  snprintf(url_path, sizeof(url_path), MAP_GLOBAL_VERSION_PATH, db->GameCode);
-  snprintf(file_path, sizeof(file_path), LOCAL_GLOBAL_VERSION_PATH, use_host ? DRIVE_HOST : DRIVE_MASS, db->GameCode);
-
-  // download global version
-  scr_printf("%s  ", file_path);
-  http_download(db->Hostname, url_path, file_path, &db_download_item_callback);
-  scr_printf("\n");
-  return 0;
 }
 
 int db_read_map_version(struct DbIndex* db, struct DbIndexItem* item)
@@ -534,4 +606,117 @@ int db_read_map_version(struct DbIndex* db, struct DbIndexItem* item)
   fread(&item->LocalVersion, sizeof(item->LocalVersion), 1, f);
   fclose(f);
   return 0;
+}
+
+void db_ensure_trailing_slash(char* path, int path_size)
+{
+  if (!path || path_size <= 0) return;
+
+  int len = strlen(path);
+  if (len == 0 || len == path_size) return;
+
+  if (path[len - 1] == '/') return;
+
+  path[len] = '/';
+  path[len+1] = 0;
+}
+
+int db_fetch_remote_repos(const char* url, struct Repo* repos, int repos_count)
+{
+  int i;
+  char content_buffer[2048];
+  char url_path[1024];
+  char url_hostname[256];
+
+  // parse host/path from url
+  if (2 != sscanf(url, "%255[^/ ]%1023[^\n]", url_hostname, url_path)) {
+    DPRINTF("Unable to parse repo url %s\n", url);
+    return 0;
+  }
+
+  // get index
+  scr_printf("Fetching horizon map repos... ");
+  int read = http_get(url_hostname, url_path, content_buffer, sizeof(content_buffer)-1, NULL);
+  if (read <= 0) {
+    scr_printf("failed %d\n", read);
+    return -1;
+  }
+
+  // parse index
+  char * content = content_buffer;
+  i = 0;
+  while (i < repos_count)
+  {
+    if (4 != sscanf(content, "%255[^\n|]|%255[^/ ]%511[^\n|]|%d\n", repos[i].Name, repos[i].HostName, repos[i].Path, &repos[i].GameMask))
+      break;
+    
+    DPRINTF("FOUND REMOTE REPO %s (%x)\n", repos[i].Name, repos[i].GameMask);
+    db_ensure_trailing_slash(repos[i].Path, sizeof(repos[i].Path));
+    content = strstr(content, "\n") + 1;
+    ++i;
+  }
+
+  scr_printf("found %d\n", i);
+  return i;
+}
+
+int db_fetch_local_repos(const char* path, struct Repo* repos, int repos_count)
+{
+  int i;
+  char content_buffer[2048];
+  char file_path[512];
+
+  // read repo file
+  scr_printf("Fetching subscribed map repos... ");
+  snprintf(file_path, 511, LOCAL_PATH, use_host ? DRIVE_HOST : DRIVE_MASS, path);
+  FILE* f = fopen(file_path, "rb");
+  if (!f) {
+    scr_printf("none\n");
+    DPRINTF("unable to open %s\n", file_path);
+    return 0;
+  }
+  
+  fread(&content_buffer, sizeof(content_buffer), 1, f);
+  fclose(f);
+
+  // parse index
+  char * content = content_buffer;
+  i = 0;
+  while (i < repos_count)
+  {
+    if (4 != sscanf(content, "%255[^\n|]|%255[^/ ]%511[^\n|]|%d\n", repos[i].Name, repos[i].HostName, repos[i].Path, &repos[i].GameMask))
+      break;
+
+    DPRINTF("FOUND SUBSCRIBED REPO %s (%x)\n", repos[i].Name, repos[i].GameMask);
+    db_ensure_trailing_slash(repos[i].Path, sizeof(repos[i].Path));
+    content = strstr(content, "\n") + 1;
+    ++i;
+  }
+
+  scr_printf("found %d\n", i);
+  return i;
+}
+
+int db_repo_save(const char* path, struct Repo* repos, int repos_count)
+{
+  int i;
+  char file_path[512];
+
+  // read repo file
+  snprintf(file_path, 511, LOCAL_PATH, use_host ? DRIVE_HOST : DRIVE_MASS, path);
+  FILE* f = fopen(file_path, "w");
+  if (!f) {
+    DPRINTF("unable to open %s\n", file_path);
+    return 0;
+  }
+  
+  for (i = 0; i < repos_count; ++i) {
+    struct Repo* repo = &repos[i];
+    if (!repo->GameMask) continue;
+
+    fprintf(f, "%s|%s%s|%d\n", repo->Name, repo->HostName, repo->Path, repo->GameMask);
+  }
+
+  fclose(f);
+  return 1;
 }
