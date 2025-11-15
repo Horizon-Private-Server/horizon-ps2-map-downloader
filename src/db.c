@@ -34,6 +34,7 @@ const char * LOCAL_BINARY_PATH = "%s:%s/%s.%s";
 const char * INDEX_PATH = "%sindex_%s_%s.txt";
 //const char * MAP_IMAGE_PATH = "/downloads/maps/assets/images/%s.jpg";
 const char * MAP_BINARY_PATH = "%s%s/%s.%s";
+const char * MAP_SHA1_PATH = "%s%s/%s.%s.sha1";
 const char * MAP_VERSION_EXT = "version";
 
 const char* DB_GAME_FOLDERS[DB_GAME_COUNT] = {
@@ -581,8 +582,13 @@ int db_download_item(struct DbIndex* db, struct DbIndexItem* item, char* buffer,
 {
   int ret = 0;
   char url_path[512];
+  char server_sha1[20];
   if (!item)
     return -1;
+
+  // download hash
+  snprintf(url_path, sizeof(url_path), MAP_SHA1_PATH, db->Path, db->GameCode, item->Filename, db->Ext);
+  int hash_size = http_get(db->Hostname, url_path, server_sha1, sizeof(server_sha1), NULL);
 
   // download zip
   snprintf(url_path, sizeof(url_path), MAP_BINARY_PATH, db->Path, db->GameCode, item->Filename, db->Ext);
@@ -590,15 +596,21 @@ int db_download_item(struct DbIndex* db, struct DbIndexItem* item, char* buffer,
   scr_printf("\n");
 
   // compute sha1 of zip
-  sha1_ctx c;
-  u8 out[20];
-  sha1_init(&c);
-  sha1_update(&c, buffer, zip_size);
-  sha1_final(&c, out);
-  scr_printf("%s sha1: ", item->Filename);
+  u8 zip_sha1[20];
+  sha1(buffer, zip_size, zip_sha1);
+  scr_printf("checking sha1 ", item->Filename);
   for (int i=0;i<20;i++)
-    scr_printf("%02x", out[i]);
-  scr_printf("\n");
+    scr_printf("%02x", zip_sha1[i]);
+  scr_printf("... ");
+
+  void scr_prompt_okay(void);
+  if (memcmp(server_sha1, zip_sha1, sizeof(server_sha1)) != 0) {
+    scr_printf("failed\n\n");
+    scr_printf("Please make sure any cheats and/or widescreen patches are disabled before launching the map downloader.\n\n\n\n");
+    return -2;
+  } else {
+    scr_printf("success\n");
+  }
 
   // extract
   if (zip_size > 0)

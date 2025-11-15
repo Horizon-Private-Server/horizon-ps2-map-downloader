@@ -86,3 +86,10 @@ void sha1_final(sha1_ctx *c, uint8_t out[20]) {
         out[i*4+3] = c->h[i];
     }
 }
+
+void sha1(void* in, int size, uint8_t out[20]) {
+    sha1_ctx c;
+    sha1_init(&c);
+    sha1_update(&c, in, size);
+    sha1_final(&c, out);
+}

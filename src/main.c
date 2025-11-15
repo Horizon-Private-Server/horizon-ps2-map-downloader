@@ -97,6 +97,7 @@ void scr_header(void)
   scr_printf("Welcome to the Horizon Custom Map Downloader\n");
   scr_printf("A tool to download Custom Maps for Ratchet and Clank UYA & Deadlocked\n");
   scr_printf("You may also download the maps from https://rac-horizon.com\n");
+  scr_printf("\nMAKE SURE ALL CHEATS AND WIDESCREEN PATCHES ARE OFF\n");
   scr_printf("\n");
 }
 
@@ -211,6 +212,7 @@ int update_all(struct Repo* repos, int repos_count, int game, int redownload_all
         int result = db_download_item(&db, item, buffer, MAX_MAP_ZIP_SIZE);
         if (result < 0) {
           scr_printf("error downloading %s (%d)\n", item->Name, result);
+          scr_prompt_okay();
           free(buffer);
           return -1;
         }
