@@ -8,7 +8,7 @@
 
 EE_BIN = bin/mapdownloader.elf
 EE_PACKED_BIN = bin/mapdownloader.packed.elf
-EE_OBJS = src/miniz.o src/main.o src/client.o src/db.o src/pad.o ps2dev9_irx.o netman_irx.o smap_irx.o usbd_irx.o usbhdfsd_irx.o
+EE_OBJS = src/miniz.o src/main.o src/client.o src/sha1.o src/db.o src/pad.o ps2dev9_irx.o netman_irx.o smap_irx.o usbd_irx.o usbhdfsd_irx.o
 EE_LIBS = -lnetman -lps2ip -ldebug -lpatches -lpad -lz
 EE_INCS = -Iinclude
 EE_LDFLAGS = -L$(PS2SDK)/ports/lib

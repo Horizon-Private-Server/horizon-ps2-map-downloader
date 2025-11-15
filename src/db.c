@@ -21,6 +21,7 @@
 #include <sys/fcntl.h>
 
 #include "miniz.h"
+#include "sha1.h"
 #include "db.h"
 
 #define BUF_SIZE                  (1024 * 2)
@@ -116,12 +117,17 @@ int parse_http_response(char* buf, int buf_size, int* response_code, int* conten
 
 int http_get(const char* hostname, const char* path, char* output, int output_length, downloadCallback_func callback)
 {
-  char buffer[2048];
-  char content_type_buffer[2048];
+  #define BUF_SIZE        (2048)
+  #define DL_CHUNK_SIZE   (2048)
+  char buffer[BUF_SIZE+1];
+  char content_type_buffer[BUF_SIZE+1];
   int response, content_length;
   int total_read = 0;
 
   DPRINTF("http_get %s\n", path);
+
+  memset(buffer, 0, sizeof(buffer));
+  memset(content_type_buffer, 0, sizeof(content_type_buffer));
 
   // connect
   int socket = client_connect(hostname);
@@ -131,7 +137,7 @@ int http_get(const char* hostname, const char* path, char* output, int output_le
   }
 
   // GET
-  int read = client_get(socket, hostname, path, buffer, sizeof(buffer)-1);
+  int read = client_get(socket, hostname, path, buffer, BUF_SIZE);
   if (read <= 0) {
     DPRINTF("db returned empty response\n");
     lwip_close(socket);
@@ -139,7 +145,7 @@ int http_get(const char* hostname, const char* path, char* output, int output_le
   }
 
   // parse response
-  int content_read_length = parse_http_response(buffer, read, &response, &content_length, output, output_length, content_type_buffer, sizeof(content_type_buffer)-1);
+  int content_read_length = parse_http_response(buffer, read, &response, &content_length, output, output_length, content_type_buffer, BUF_SIZE);
   if (response != 200) {
     DPRINTF("db returned %d\n", response);
     lwip_close(socket);
@@ -161,8 +167,8 @@ int http_get(const char* hostname, const char* path, char* output, int output_le
 
     // 
     int left = content_length - total_read;
-    if (left > 2048)
-      left = 2048;
+    if (left > DL_CHUNK_SIZE)
+      left = DL_CHUNK_SIZE;
     else if (left <= 0)
       break;
 
@@ -306,6 +312,9 @@ int db_parse(struct DbIndex* db, int print_lines)
   int i;
   char content_buffer[2048];
   char url_path[512];
+
+  // clear buffer
+  memset(content_buffer, 0, sizeof(content_buffer));
 
   // init
   db->DeltaCount = 0;
@@ -578,6 +587,17 @@ int db_download_item(struct DbIndex* db, struct DbIndexItem* item, char* buffer,
   // download zip
   snprintf(url_path, sizeof(url_path), MAP_BINARY_PATH, db->Path, db->GameCode, item->Filename, db->Ext);
   int zip_size = http_get(db->Hostname, url_path, buffer, buffer_size, &db_download_item_callback);
+  scr_printf("\n");
+
+  // compute sha1 of zip
+  sha1_ctx c;
+  u8 out[20];
+  sha1_init(&c);
+  sha1_update(&c, buffer, zip_size);
+  sha1_final(&c, out);
+  scr_printf("%s sha1: ", item->Filename);
+  for (int i=0;i<20;i++)
+    scr_printf("%02x", out[i]);
   scr_printf("\n");
 
   // extract

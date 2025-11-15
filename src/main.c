@@ -207,6 +207,7 @@ int update_all(struct Repo* repos, int repos_count, int game, int redownload_all
         scr_printf("downloading %s... ", item->Name);
 
         clock_t start = clock();
+        memset(buffer, 0, MAX_MAP_ZIP_SIZE);
         int result = db_download_item(&db, item, buffer, MAX_MAP_ZIP_SIZE);
         if (result < 0) {
           scr_printf("error downloading %s (%d)\n", item->Name, result);
@@ -506,6 +507,7 @@ int main(int argc, char *argv[])
 {
 	//Reboot IOP
   SifInitRpc(0);
+  SifIopReboot("");
 	while(!SifIopReset("", 0)){};
 	while(!SifIopSync()){};
 
@@ -537,8 +539,8 @@ int main(int argc, char *argv[])
   DPRINTF("DBINDEX STRUCT SIZE %x\n", sizeof(struct DbIndex));
   DPRINTF("REPO STRUCT SIZE %x\n", sizeof(struct Repo));
   DPRINTF("REPOS MALLOC SIZE %x\n", sizeof(struct Repo) * MAX_REPOS);
-  struct Repo* remote_repos = (struct Repo*)malloc(sizeof(struct Repo) * MAX_REPOS);
-  struct Repo* subbed_repos = (struct Repo*)malloc(sizeof(struct Repo) * MAX_REPOS);
+  struct Repo remote_repos[MAX_REPOS];
+  struct Repo subbed_repos[MAX_REPOS];
 
 retry:;
 
@@ -572,9 +574,6 @@ retry:;
   }
 
 end:
-  free(remote_repos);
-  free(subbed_repos);
-
 	ps2ipDeinit();
 	NetManDeinit();
 	SifExitRpc();
